@@ -1,0 +1,144 @@
+#include <SoftwareSerial.h>
+
+/*-------------------------------------------------------------------------------------------------------------------------------
+Portions of the code was borrowed from Spark Fun Electronics Music Instrument Shield example code by Nathan Seidle, and modified
+---------------------------------------------------------------------------------------------------------------------------------*/
+
+byte note = 0;
+byte instrument = 47;
+byte reset = 4;
+byte channel = 0;
+byte sensor_values[13];
+byte note_num[] = {77,78,79,80,81,82,83,84,85,86,87,88,89};
+byte previous_value[13];
+byte current_value[13];
+unsigned long timer[13];
+
+SoftwareSerial midi(2,3);
+
+void setup() {
+  //Starting serial monitor communication rate
+  Serial.begin(57600);
+
+  //Starting MIDI shield communication rate
+  midi.begin(31250);
+  
+  //resetting the MIDI shield
+  pinMode(reset,OUTPUT);
+  digitalWrite(reset,LOW);
+  delay(100);
+  digitalWrite(reset,HIGH);
+  delay(100);
+
+  //setting digital pins 22 thru 46, evens only, to input mode for the sensors
+  for(byte x = 22; x < 32; x+=2){
+  }
+
+  //creating a channel on the MIDI
+  toMIDI(0xB0, 127, 0); //Initializing polyphony on channel 1 of the MIDI
+  toMIDI(0xB0, 0x07, 127); //Setting volume to maximum(127)
+  toMIDI(0xB0, 0x0, 0x79);  //Selecting the melodic instrument bank
+  toMIDI(0xC0, instrument, 0);  //Selecting the harp instrument
+  
+  //creating  a separate channel for each sensor and setting the harp instrument
+  /*for(byte y = 0; y < 5; y++){
+    toMIDI((0xB0 | y), 0x07, 127); //Setting volume to maximum(127)
+    toMIDI((0xB0 | y), 0x00, 0x79); //Selecting the melodic instrument bank
+    toMIDI((0xC0 | y), instrument, 0); //Selecting the orchestral harp instrument 
+    Serial.println("creating channels");
+  }*/
+  
+  /*//channel 10
+  toMIDI(0xBA, 0, 0x79);
+  toMIDI(0xCA, instrument, 0);
+  //channel 11
+  toMIDI(0xBB, 0, 0x79);
+  toMIDI(0xCB, instrument, 0);
+  //channel 12
+  toMIDI(0xBC, 0, 0x79);
+  toMIDI(0xCC, instrument, 0);
+  */
+
+  delay(1000);
+}
+
+void loop() {
+
+  //Reads the digitial pin inputs and records the values in an array
+  byte y = 0;
+  
+  for(byte x = 22; x < 32; x+=2){
+    sensor_values[y] = digitalRead(x);
+    y++;
+  }
+
+  playmusic();
+  
+}
+
+void playmusic(){
+  
+  Serial.println("play music");
+
+  //a variable to remember if the laser has been triggered
+  current_value[channel] = sensor_values[channel];
+
+  //checks to see if the laser has been triggered and then checks to see the sensor is still tripped or not before playing a note or not
+  if(sensor_values[channel] == 1){
+    if(previous_value[channel] != current_value[channel]){
+    Serial.println("note on: ");
+    Serial.print(channel);
+    Serial.println("");
+    //Sends the appropriate note to the MIDI based on which sensor has been tripped
+    noteOn(1, note_num[channel], 80);
+    //Records the current system time
+    timer[channel] = millis();
+    }
+  }
+  
+  //sets the variable equal to the current sensor value
+  previous_value[channel] = current_value[channel];
+
+  //checks to see if 500 milliseconds has passed to turn off the note on the channel
+  if((millis() - timer[channel]) > 500){
+    Serial.println("note off: ");
+    Serial.print(channel);
+    Serial.print("\n");
+    noteOff(1, note_num[channel], 80);
+  }
+
+  //increments the channel
+  channel++;
+  
+  if(channel > 4)
+    channel = 0;
+  
+}
+
+//plays a note on a specific channel
+void noteOn(byte channel, byte note, byte volume){
+  Serial.println("note on method");
+  toMIDI((0x90 | channel), note, volume);
+  
+}
+
+//turns off a note on a specific channel
+void noteOff(byte channel, byte note, byte volume){
+  Serial.println("note off method");
+  toMIDI((0x80 | channel), note, volume);
+  
+}
+
+//sends commands to the MIDI
+void toMIDI(byte cmd, byte data1, byte data2){
+
+  Serial.println("writing to MIDI");
+  
+  midi.write(cmd);
+  midi.write(data1);
+
+//checks to see if the command byte sent(cmd) requires either 1 or 2 data bytes
+  if((cmd & 0xF0) <= 0xB0 || (cmd & 0xF0) == 0xE0)
+    midi.write(data2);
+  
+}
