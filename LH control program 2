@@ -1,0 +1,205 @@
+#include <SoftwareSerial.h>
+
+/*-------------------------------------------------------------------------------------------------------------------------------
+Portions of the code was borrowed from Spark Fun Electronics Music Instrument Shield example code by Nathan Seidle, and modified
+---------------------------------------------------------------------------------------------------------------------------------*/
+
+#define resetpin 4
+
+int volume = 80;
+int noteDuration = 500;
+
+
+byte instrument = 1;
+byte keySig = 0;
+byte laserChannel = 0;
+byte noteChannel = 1;
+byte sustain;
+byte sensor_values[13];
+byte note_num[2][13] = {{67,69,71,72,74,76,78,79,81,83,84,86,88},{88,86,84,83,81,79,78,76,74,72,71,69,67}};//G major Scale & Reversed G major Scale
+byte previous_sensorvalue[13] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
+byte current_sensorvalue[13];
+
+unsigned long timer[13];
+
+
+SoftwareSerial midi(2,3); //RX, TX
+
+void setup() {
+  //Starting serial monitor communication rate
+  Serial.begin(57600);
+
+  //Starting MIDI shield communication rate
+  midi.begin(31250);
+  
+  //resetting the MIDI shield
+  pinMode(resetpin,OUTPUT);
+  digitalWrite(resetpin,LOW);
+  delay(100);
+  digitalWrite(resetpin,HIGH);
+  delay(100);
+
+  //setting digital pins 22 thru 46, evens only, to input mode for the sensors
+  for(byte x = 22; x < 38; x+=2){
+    pinMode(x, INPUT);
+  }
+  for(byte x = 40; x < 52; x+=2){
+    pinMode(x, INPUT);
+  }
+  
+  //creating a channel on the MIDI to send commands to
+  toMIDI(0xB1, 127, 0); //Initializing polyphony on channel 1 of the MIDI
+  toMIDI(0xB1, 0x07, 127); //Setting volume to maximum(127)
+  toMIDI(0xB1, 0x0, 0x79);  //Selecting the melodic instrument bank
+  toMIDI(0xC1, instrument, 0);  //Selecting an instrument
+
+  Serial.println("Program Start");
+
+}
+
+void loop() {
+ 
+  readSensors();
+  playMusic();
+  
+}
+
+void readSensors(){
+
+//Reads the digitial pin inputs and records the values in an array
+  byte y;
+  
+  for(byte x = 22, y = 0; x < 38; x+=2, y++){
+    sensor_values[y] = digitalRead(x);
+
+    /*Serial.print("Sensor Input ");
+    Serial.print(y);
+    Serial.print(" : ");
+    Serial.print(sensor_values[y]);
+    Serial.println("");*/
+  }
+  for(byte x = 40, y = 8; x < 50; x+=2, y++){
+    sensor_values[y] = digitalRead(x);
+
+    /*Serial.print("Sensor Input ");
+    Serial.print(y);
+    Serial.print(" : ");
+    Serial.print(sensor_values[y]);
+    Serial.println("");*/
+  }
+   
+  
+
+//Reads the switches and buttons on the laser harp command console
+
+  instrumentSelect(digitalRead(13));
+  keySignature(digitalRead(12));
+  sustain = digitalRead(11);
+  int vol = analogRead(14);
+  volumeControl(vol); 
+  
+}
+
+
+void playMusic(){
+  
+  if(sensor_values[laserChannel] == 1){
+    if(sensor_values[laserChannel] != previous_sensorvalue[laserChannel]){
+      noteOn(noteChannel, note_num[keySig][laserChannel], volume);
+      timer[laserChannel] = millis();
+    }
+  }
+
+  previous_sensorvalue[laserChannel] = sensor_values[laserChannel];
+  
+  if((millis() - timer[laserChannel]) > noteDuration){
+    noteOff(noteChannel, note_num[keySig][laserChannel], 0);
+    timer[laserChannel] = 0;
+  }
+
+  laserChannel++;
+
+  if(laserChannel > 12)
+    laserChannel = 0;
+}
+
+
+void instrumentSelect(byte switch1){
+
+  if((switch1 == 1)){
+    if(instrument != 42){
+      instrument = 42;
+      noteChannel = 1;
+      toMIDI(0xC1, instrument, 0);
+      Serial.println("Violin");
+    }
+  }
+  else{
+    if(instrument != 47){
+      instrument = 47;
+      noteChannel = 0;
+      toMIDI(0xC1, instrument, 0);
+      Serial.println("Harp");
+    }
+  }
+}
+
+void keySignature(byte state){
+
+  if(state == 1){
+    keySig = 0;
+    //Serial.println("G Major Scale");
+  }
+  else{
+    keySig = 1;
+    //Serial.println("D Major Scale");
+  }
+  
+}
+
+void volumeControl(double pressureSensor){
+
+  if(pressureSensor > 700){
+    pressureSensor = 700;
+  }
+  else if(pressureSensor < 220){
+    pressureSensor = 220;
+  }
+  else if((pressureSensor < 500) && (pressureSensor > 220)){
+    pressureSensor = 496;
+  }
+
+  pressureSensor = (pressureSensor/700)*127;
+  volume = (int)pressureSensor;
+  //Serial.println(volume);
+
+}
+
+
+//plays a note on a specific channel
+void noteOn(byte laserChannel, byte note, byte volume){
+  toMIDI((0x90 | laserChannel), note, volume);
+}
+
+//turns off a note on a specific channel
+void noteOff(byte laserChannel, byte note, byte volume){
+  toMIDI((0x80 | laserChannel), note, volume); 
+}
+
+//sends commands to the MIDI
+void toMIDI(byte cmd, byte data1, byte data2){
+  
+  midi.write(cmd);
+  midi.write(data1);
+
+  /*Serial.print("CMD: "); Serial.print(cmd);
+  Serial.print("  data1: "); Serial.print(data1);
+  Serial.print("  data2: "); Serial.print(data2);
+  Serial.println("");*/
+
+//checks to see if the command byte sent(cmd) requires either 1 or 2 data bytes
+  if((cmd & 0xF0) <= 0xB0 || (cmd & 0xF0) == 0xE0){
+    midi.write(data2);
+  }
+  
+}
